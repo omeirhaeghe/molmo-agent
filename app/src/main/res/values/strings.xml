@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Molmo Agent</string>
+    <string name="accessibility_service_description">Molmo Agent uses this service to automate UI actions on your behalf. It captures screenshots and performs taps, swipes, and text input to complete your tasks.</string>
+</resources>
