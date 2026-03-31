@@ -41,7 +41,7 @@ class AgentAccessibilityService : AccessibilityService() {
      */
     suspend fun captureScreen(): Bitmap? = suspendCancellableCoroutine { cont ->
         takeScreenshot(
-            displayId,
+            android.view.Display.DEFAULT_DISPLAY,
             mainExecutor,
             object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {

@@ -109,7 +109,7 @@ fun SettingsScreen(
                 }
             }
 
-            HorizontalDivider()
+            Spacer(modifier = Modifier.height(1.dp))
 
             // Agent Settings
             Text(
