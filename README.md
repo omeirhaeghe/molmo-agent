@@ -8,5 +8,6 @@
 > - Memory to Improve Performance
 > - KPI
 > - Benchmarking
+> - Proper Android Implementation
 
 
