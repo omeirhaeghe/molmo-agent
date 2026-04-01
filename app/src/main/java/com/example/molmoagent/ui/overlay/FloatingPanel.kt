@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,7 +30,9 @@ fun FloatingPanel(
     onStop: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
-    onOpenApp: () -> Unit
+    onOpenApp: () -> Unit,
+    onDismiss: () -> Unit = {},
+    onInputFocused: (Boolean) -> Unit = {}
 ) {
     val agentLoop = AgentLoopHolder.agentLoop
     val state by agentLoop?.state?.collectAsState() ?: remember { mutableStateOf(AgentState.IDLE) }
@@ -67,9 +70,12 @@ fun FloatingPanel(
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
-                Row {
+                Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                     IconButton(onClick = onOpenApp, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.OpenInNew, "Open app", tint = Color.White.copy(alpha = 0.7f))
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, "Dismiss", tint = Color.White.copy(alpha = 0.7f))
                     }
                 }
             }
@@ -204,7 +210,11 @@ fun FloatingPanel(
                     OutlinedTextField(
                         value = taskInput,
                         onValueChange = { taskInput = it },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { focusState ->
+                                onInputFocused(focusState.isFocused)
+                            },
                         placeholder = { Text("What should I do?", color = Color.White.copy(alpha = 0.4f)) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,

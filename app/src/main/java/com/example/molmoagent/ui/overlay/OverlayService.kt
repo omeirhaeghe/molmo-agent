@@ -23,6 +23,7 @@ class OverlayService : Service(), OverlayVisibilityController {
     private lateinit var windowManager: WindowManager
     private var overlayView: ComposeView? = null
     private var overlayParams: WindowManager.LayoutParams? = null
+    private var isFocusable = false
 
     private val lifecycleOwner = OverlayLifecycleOwner()
 
@@ -55,19 +56,43 @@ class OverlayService : Service(), OverlayVisibilityController {
         super.onDestroy()
     }
 
+    /**
+     * Toggle the overlay window between focusable (keyboard works) and
+     * not-focusable (touches pass through to apps behind).
+     */
+    fun setFocusable(focusable: Boolean) {
+        if (focusable == isFocusable) return
+        isFocusable = focusable
+        val params = overlayParams ?: return
+        params.flags = if (focusable) {
+            // Focusable: keyboard can appear, but touches outside the overlay
+            // are still forwarded thanks to FLAG_NOT_TOUCH_MODAL.
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        } else {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        }
+        overlayView?.let { windowManager.updateViewLayout(it, params) }
+    }
+
     private fun showOverlay() {
         if (overlayView != null) return
 
+        // Start FOCUSABLE so the keyboard can appear when the user taps
+        // the text field. FLAG_NOT_TOUCH_MODAL lets touches *outside* the
+        // overlay pass through to the app behind.
+        isFocusable = true
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = 100
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
         }
 
         val composeView = ComposeView(this).apply {
@@ -76,6 +101,8 @@ class OverlayService : Service(), OverlayVisibilityController {
             setContent {
                 FloatingPanel(
                     onSubmitTask = { task ->
+                        // Drop focus so keyboard hides before agent starts
+                        setFocusable(false)
                         val agentLoop = AgentLoopHolder.agentLoop
                         if (agentLoop != null && agentLoop.state.value == AgentState.IDLE) {
                             AgentLoopHolder.startTask(task)
@@ -95,6 +122,15 @@ class OverlayService : Service(), OverlayVisibilityController {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         startActivity(intent)
+                    },
+                    onDismiss = {
+                        setFocusable(false)
+                        hideOverlay()
+                    },
+                    onInputFocused = { focused ->
+                        // Make the overlay focusable when the text field is tapped
+                        // so the soft keyboard can appear
+                        setFocusable(focused)
                     }
                 )
             }
