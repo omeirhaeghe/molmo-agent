@@ -51,6 +51,8 @@ Deploy the model to a HuggingFace Inference Endpoint:
 
 Cost is roughly $1-3/hr depending on GPU. You can pause the endpoint when not in use.
 
+> **Note:** MolmoWeb-8B inference deployment is not supported by all HuggingFace deployment partners. Not every infrastructure provider available through HuggingFace Inference Endpoints can run this model. If deployment fails, try a different provider/region or consider self-hosting with [vLLM](https://github.com/vllm-project/vllm) or [TGI](https://github.com/huggingface/text-generation-inference) on your own GPU.
+
 ### 2. Build the app
 
 ```bash
