@@ -1,8 +1,6 @@
-# Molmo Agent
+# Clawlando
 
-An open-source Android "computer use" agent that automates phone tasks using [Allen AI's MolmoWeb](https://allenai.org/blog/molmoweb) vision model.
-
-Tell the agent what to do in plain English and it will take screenshots, reason about the UI, and execute taps, swipes, and text input on your phone autonomously.
+An open-source Android "computer use" agent. Tell it what to do in plain English and it takes screenshots, reasons about the UI, and executes taps, swipes, and text input on your phone autonomously.
 
 ## How it works
 
@@ -11,74 +9,84 @@ You: "Open Settings and turn on WiFi"
 
 Agent loop:
   1. OBSERVE  - takes a screenshot via AccessibilityService
-  2. REASON   - sends screenshot + task + history to MolmoWeb-8B
+  2. REASON   - sends screenshot + task + history to a vision-language model
   3. PARSE    - extracts THOUGHT and ACTION from model response
   4. ACT      - executes tap/swipe/type via AccessibilityService gestures
   5. REPEAT   - loops until the task is done or max steps reached
 ```
 
-The app runs as a floating overlay on top of other apps, so you can trigger it from anywhere.
+The app runs as a floating overlay on top of other apps, so you can trigger it from anywhere. An animated glow border shows the agent's current state (reasoning, observing, acting).
+
+## Inference backends
+
+Clawlando supports three inference backends:
+
+| Backend | Model | Where it runs | Pros | Cons |
+|---------|-------|---------------|------|------|
+| **Qwen** | Qwen2.5-VL-7B | HuggingFace Inference Endpoint | Strong vision + UI understanding, easy to deploy with TGI | Requires cloud GPU (~$1-3/hr) |
+| **Cloud** | MolmoWeb-8B | HuggingFace Inference Endpoint | Purpose-built for web/UI interaction | Limited deployment support |
+| **Local** | SmolVLM2-2.2B | On-device via llama.cpp | Fully offline, no server needed | Requires ~3GB RAM, slower, less accurate |
+
+All cloud backends use the OpenAI-compatible `/v1/chat/completions` API format.
 
 ## Features
 
 - Floating overlay panel with prompt input (works over any app)
-- Observe-reason-act agent loop powered by MolmoWeb-8B
+- Observe-reason-act agent loop with three swappable backends
 - Full action space: tap, long press, swipe, scroll, type, back, home, open app, open URL
 - Multi-step task execution with conversation history
+- Animated glow overlay showing agent state
 - Pause, resume, and stop the agent at any time
+- On-device inference with llama.cpp (ARM64, SmolVLM2-2.2B Q4_K_M)
+- In-app model download with progress tracking
 - Task history stored locally with Room
 - Setup wizard for permissions
-- Configurable HuggingFace Inference Endpoint
+- Detailed logcat logging for debugging (`adb logcat -s Clawlando:* LlamaCppJNI:*`)
 
 ## Requirements
 
-- Android 11+ (API 30+)
-- A [HuggingFace Inference Endpoint](https://huggingface.co/inference-endpoints) running `allenai/MolmoWeb-8B`
+- Android 11+ (API 30+), ARM64 device
+- For cloud/Qwen: a [HuggingFace Inference Endpoint](https://huggingface.co/inference-endpoints)
+- For local: ~3GB free RAM + ~1.7GB storage for model files
 - Accessibility Service permission (for screenshots and gestures)
 - "Display over other apps" permission (for the floating overlay)
 
 ## Setup
 
-### 1. Deploy MolmoWeb-8B
+### 1. Deploy a model (cloud)
 
-Deploy the model to a HuggingFace Inference Endpoint:
+**Qwen2.5-VL-7B (recommended):**
 
-1. Go to [huggingface.co/allenai/MolmoWeb-8B](https://huggingface.co/allenai/MolmoWeb-8B)
-2. Click **Deploy** > **Inference Endpoints**
-3. Select a GPU instance (NVIDIA A10G or L4 recommended)
-4. Click **Create Endpoint** and wait for it to spin up
-5. Copy the endpoint URL
+1. Go to [HuggingFace Inference Endpoints](https://huggingface.co/inference-endpoints)
+2. Create a new endpoint with model `Qwen/Qwen2.5-VL-7B-Instruct`
+3. Select a GPU instance (NVIDIA A10G or L4)
+4. Wait for it to spin up, copy the endpoint URL
 
-Cost is roughly $1-3/hr depending on GPU. You can pause the endpoint when not in use.
-
-> **Note:** MolmoWeb-8B inference deployment is not supported by all HuggingFace deployment partners. Not every infrastructure provider available through HuggingFace Inference Endpoints can run this model. If deployment fails, try a different provider/region or consider self-hosting with [vLLM](https://github.com/vllm-project/vllm) or [TGI](https://github.com/huggingface/text-generation-inference) on your own GPU.
+**Or use local inference** — no server needed, just download the model from Settings.
 
 ### 2. Build the app
 
 ```bash
 git clone https://github.com/omeirhaeghe/molmo-agent.git
 cd molmo-agent
+git submodule update --init --recursive
 ./gradlew assembleDebug
 ```
 
 The APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
-Or open the project in Android Studio and run directly on your device.
-
-### 3. Configure the app
+### 3. Configure
 
 1. Install the APK on your Android device
-2. Open **Molmo Agent** and follow the setup wizard:
-   - Enable the Accessibility Service
-   - Grant "Display over other apps" permission
-3. Go to **Settings** and enter your HuggingFace endpoint URL and API token
-4. Tap **Test Connection** to verify
+2. Open **Clawlando** and follow the setup wizard (Accessibility Service + overlay permission)
+3. Go to **Settings**, pick your backend (Qwen / Cloud / Local), and enter the endpoint URL or download the local model
+4. Tap **Test Connection** to verify (cloud backends)
 
 ### 4. Use it
 
-1. The floating overlay appears at the bottom of your screen
+1. Tap the overlay icon — the floating panel appears at the bottom of your screen
 2. Type a task (e.g., "open the calculator app and compute 42 * 17")
-3. The agent starts working - you can watch its progress in the overlay
+3. Watch the agent work — the glow border shows its state
 4. Hit **Stop** at any time to abort
 
 ## Architecture
@@ -86,23 +94,29 @@ Or open the project in Android Studio and run directly on your device.
 ```
 com.example.molmoagent/
 ├── agent/           # Core agent loop, action parsing, execution
-├── accessibility/   # AccessibilityService, gesture dispatch, global actions
-├── inference/       # HuggingFace client, prompt builder, image processing
-├── screen/          # Screenshot capture manager
+├── accessibility/   # AccessibilityService, gesture dispatch
+├── inference/
+│   ├── local/       # llama.cpp JNI bridge, SmolVLM2 client, model download
+│   ├── HuggingFaceClient   # Cloud + Qwen (OpenAI-compatible API)
+│   ├── InferenceClientManager  # Switches between backends transparently
+│   ├── ResponseParser      # Shared THOUGHT/ACTION extraction
+│   └── ImageProcessor      # Screenshot resize + base64 encoding
+├── screen/          # Screenshot capture
 ├── ui/
-│   ├── overlay/     # Floating panel service (works over other apps)
+│   ├── overlay/     # Floating panel + animated glow overlay
 │   ├── setup/       # Permission setup wizard
-│   ├── settings/    # Endpoint configuration
+│   ├── settings/    # Backend selection + endpoint config + model download
 │   └── chat/        # Task history view
 ├── data/            # Room database for task/step persistence
-└── di/              # Hilt dependency injection
+├── di/              # Hilt dependency injection
+└── cpp/             # llama.cpp submodule + JNI bridge (C++)
 ```
 
 ### Action space
 
 | Action | Description |
 |---|---|
-| `click(x, y)` | Tap at normalized coordinates |
+| `click(x, y)` | Tap at normalized coordinates (0.0-1.0) |
 | `long_press(x, y)` | Long press at coordinates |
 | `type("text")` | Type into the focused input field |
 | `scroll(direction)` | Scroll up/down/left/right |
@@ -110,7 +124,8 @@ com.example.molmoagent/
 | `press_home()` | Press the home button |
 | `open_app("name")` | Launch an app by name |
 | `goto("url")` | Open a URL in the browser |
-| `send_msg_to_user("msg")` | Task complete, show result to user |
+| `wait()` | Wait for the UI to settle |
+| `send_msg_to_user("msg")` | Task complete, report result |
 
 ## Tech stack
 
@@ -118,23 +133,19 @@ com.example.molmoagent/
 - **Hilt** for dependency injection
 - **Room** for local persistence
 - **OkHttp** for network requests
-- **MolmoWeb-8B** via HuggingFace Inference Endpoints
-- **AccessibilityService** for screenshots (API 30+) and gesture dispatch
+- **llama.cpp** + JNI for on-device inference (ARM64)
+- **HuggingFace TGI** for cloud inference (OpenAI-compatible API)
+- **AccessibilityService** for screenshots and gesture dispatch
 
-## Roadmap
+## Debugging
 
-- [ ] Finish prototype and stabilize agent loop
-- [ ] Memory / context persistence to improve multi-session performance
-- [ ] KPI tracking (task success rate, steps per task)
-- [ ] Benchmarking against standard mobile automation datasets
-- [ ] MolmoPoint-GUI integration for more accurate element grounding
-- [ ] On-device inference with quantized MolmoWeb-4B
-- [ ] Fine-tune on mobile UI trajectories for a true "MolmoMobile" model
+Monitor local inference in real-time:
 
-## Status
+```bash
+adb logcat -s Clawlando:* LlamaCppJNI:*
+```
 
-> Work in progress. This is a prototype demonstrating vision-model-driven mobile automation.
-> AI-assisted development.
+This shows model loading progress, prefill speed, token generation rate, and parsed actions.
 
 ## License
 
