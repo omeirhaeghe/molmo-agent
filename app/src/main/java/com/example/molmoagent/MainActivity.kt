@@ -77,15 +77,35 @@ class MainActivity : ComponentActivity() {
                         composable("settings") {
                             val endpointUrl by viewModel.endpointUrl.collectAsState()
                             val maxSteps by viewModel.maxSteps.collectAsState()
+                            val inferenceMode by viewModel.inferenceMode.collectAsState()
+                            val downloadState by viewModel.downloadState.collectAsState()
+                            val isLoadingModel by viewModel.isLoadingModel.collectAsState()
+                            val localModeError by viewModel.localModeError.collectAsState()
 
                             SettingsScreen(
                                 currentEndpointUrl = endpointUrl,
                                 currentMaxSteps = maxSteps,
-                                onSave = { url, steps ->
-                                    viewModel.saveSettings(url, steps)
+                                currentInferenceMode = inferenceMode,
+                                downloadState = downloadState,
+                                isLoadingModel = isLoadingModel,
+                                localModeError = localModeError,
+                                onSave = { url, steps, mode ->
+                                    viewModel.saveSettings(url, steps, mode)
                                 },
                                 onTestConnection = { url ->
                                     viewModel.testConnection(url)
+                                },
+                                onInferenceModeChanged = { mode ->
+                                    viewModel.setInferenceMode(mode)
+                                },
+                                onDownloadModel = {
+                                    viewModel.downloadModel()
+                                },
+                                onCancelDownload = {
+                                    viewModel.cancelDownload()
+                                },
+                                onDeleteModel = {
+                                    viewModel.deleteModel()
                                 },
                                 onBack = {
                                     navController.popBackStack()

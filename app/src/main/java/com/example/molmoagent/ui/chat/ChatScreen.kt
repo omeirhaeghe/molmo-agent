@@ -47,7 +47,7 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Molmo Agent") },
+                title = { Text("Clawlando") },
                 actions = {
                     IconButton(onClick = onStartOverlay) {
                         Icon(Icons.Default.Layers, "Show Overlay")

@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -23,9 +24,11 @@ class OverlayService : Service(), OverlayVisibilityController {
     private lateinit var windowManager: WindowManager
     private var overlayView: ComposeView? = null
     private var overlayParams: WindowManager.LayoutParams? = null
+    private var glowView: ComposeView? = null
     private var isFocusable = false
 
     private val lifecycleOwner = OverlayLifecycleOwner()
+    private val glowLifecycleOwner = OverlayLifecycleOwner()
 
     override fun onCreate() {
         super.onCreate()
@@ -52,6 +55,7 @@ class OverlayService : Service(), OverlayVisibilityController {
     override fun onDestroy() {
         hideOverlay()
         lifecycleOwner.handleDestroy()
+        glowLifecycleOwner.handleDestroy()
         if (instance == this) instance = null
         super.onDestroy()
     }
@@ -140,9 +144,48 @@ class OverlayService : Service(), OverlayVisibilityController {
         windowManager.addView(composeView, params)
         overlayView = composeView
         overlayParams = params
+
+        // Add the full-screen glow overlay (non-interactive, behind the panel)
+        showGlowOverlay()
+    }
+
+    private fun showGlowOverlay() {
+        if (glowView != null) return
+
+        val glowParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        val glow = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(glowLifecycleOwner)
+            setViewTreeSavedStateRegistryOwner(glowLifecycleOwner)
+            setContent {
+                val agentLoop = AgentLoopHolder.agentLoop
+                val state = agentLoop?.state?.collectAsState()
+                state?.value?.let { InferenceGlowOverlay(agentState = it) }
+            }
+        }
+
+        glowLifecycleOwner.handleStart()
+        windowManager.addView(glow, glowParams)
+        glowView = glow
+    }
+
+    private fun hideGlowOverlay() {
+        glowView?.let {
+            windowManager.removeView(it)
+            glowView = null
+        }
     }
 
     private fun hideOverlay() {
+        hideGlowOverlay()
         overlayView?.let {
             windowManager.removeView(it)
             overlayView = null
@@ -151,19 +194,21 @@ class OverlayService : Service(), OverlayVisibilityController {
 
     override fun hide() {
         overlayView?.post { overlayView?.visibility = View.GONE }
+        glowView?.post { glowView?.visibility = View.GONE }
     }
 
     override fun show() {
         overlayView?.post { overlayView?.visibility = View.VISIBLE }
+        glowView?.post { glowView?.visibility = View.VISIBLE }
     }
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Molmo Agent Overlay",
+            "Clawlando Overlay",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Shows the Molmo Agent floating overlay"
+            description = "Shows the Clawlando floating overlay"
         }
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(channel)
@@ -177,7 +222,7 @@ class OverlayService : Service(), OverlayVisibilityController {
         )
 
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Molmo Agent")
+            .setContentTitle("Clawlando")
             .setContentText("Agent overlay is active")
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pendingIntent)

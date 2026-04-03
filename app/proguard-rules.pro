@@ -8,3 +8,9 @@
 
 # Keep accessibility service
 -keep class com.example.molmoagent.accessibility.AgentAccessibilityService { *; }
+
+# Keep JNI native methods
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-keep class com.example.molmoagent.inference.local.LlamaCppBridge { *; }

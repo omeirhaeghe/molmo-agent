@@ -66,7 +66,7 @@ fun SetupScreen(
         )
 
         Text(
-            text = "Molmo Agent needs a few permissions to automate your phone.",
+            text = "Clawlando needs a few permissions to automate your phone.",
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             fontSize = 14.sp
         )

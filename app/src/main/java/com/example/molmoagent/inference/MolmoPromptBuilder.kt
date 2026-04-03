@@ -1,5 +1,6 @@
 package com.example.molmoagent.inference
 
+import com.example.molmoagent.agent.AgentAction
 import com.example.molmoagent.agent.AgentStep
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,12 +36,26 @@ class MolmoPromptBuilder @Inject constructor() {
             - When the task is complete, use send_msg_to_user to report the result
             - If you are stuck or cannot complete the task, use send_msg_to_user to explain why
         """.trimIndent()
+
+        fun formatAction(action: AgentAction): String {
+            return when (action) {
+                is AgentAction.Click -> "click(${action.normX}, ${action.normY})"
+                is AgentAction.LongPress -> "long_press(${action.normX}, ${action.normY})"
+                is AgentAction.Type -> "type(\"${action.text}\")"
+                is AgentAction.Scroll -> "scroll(${action.direction.name.lowercase()})"
+                is AgentAction.Swipe -> "swipe(${action.startX}, ${action.startY}, ${action.endX}, ${action.endY})"
+                is AgentAction.PressBack -> "press_back()"
+                is AgentAction.PressHome -> "press_home()"
+                is AgentAction.OpenNotifications -> "open_notifications()"
+                is AgentAction.OpenRecents -> "open_recents()"
+                is AgentAction.OpenApp -> "open_app(\"${action.appName}\")"
+                is AgentAction.GoToUrl -> "goto(\"${action.url}\")"
+                is AgentAction.SendMessageToUser -> "send_msg_to_user(\"${action.message}\")"
+                is AgentAction.Wait -> "wait()"
+            }
+        }
     }
 
-    /**
-     * Build the full prompt for the model including task goal, previous steps, and current screenshot.
-     * The screenshot is provided separately as an image input.
-     */
     fun buildPrompt(taskGoal: String, previousSteps: List<AgentStep>): String {
         val sb = StringBuilder()
 
@@ -53,7 +68,7 @@ class MolmoPromptBuilder @Inject constructor() {
             for (step in previousSteps) {
                 sb.appendLine("## Step ${step.stepNumber}")
                 sb.appendLine("THOUGHT: ${step.thought}")
-                sb.appendLine("ACTION: ${formatAction(step)}")
+                sb.appendLine("ACTION: ${formatAction(step.action)}")
                 sb.appendLine()
             }
         }
@@ -65,23 +80,5 @@ class MolmoPromptBuilder @Inject constructor() {
         sb.appendLine("Analyze the screenshot and provide your next THOUGHT and ACTION.")
 
         return sb.toString()
-    }
-
-    private fun formatAction(step: AgentStep): String {
-        return when (val action = step.action) {
-            is com.example.molmoagent.agent.AgentAction.Click -> "click(${action.normX}, ${action.normY})"
-            is com.example.molmoagent.agent.AgentAction.LongPress -> "long_press(${action.normX}, ${action.normY})"
-            is com.example.molmoagent.agent.AgentAction.Type -> "type(\"${action.text}\")"
-            is com.example.molmoagent.agent.AgentAction.Scroll -> "scroll(${action.direction.name.lowercase()})"
-            is com.example.molmoagent.agent.AgentAction.Swipe -> "swipe(${action.startX}, ${action.startY}, ${action.endX}, ${action.endY})"
-            is com.example.molmoagent.agent.AgentAction.PressBack -> "press_back()"
-            is com.example.molmoagent.agent.AgentAction.PressHome -> "press_home()"
-            is com.example.molmoagent.agent.AgentAction.OpenNotifications -> "open_notifications()"
-            is com.example.molmoagent.agent.AgentAction.OpenRecents -> "open_recents()"
-            is com.example.molmoagent.agent.AgentAction.OpenApp -> "open_app(\"${action.appName}\")"
-            is com.example.molmoagent.agent.AgentAction.GoToUrl -> "goto(\"${action.url}\")"
-            is com.example.molmoagent.agent.AgentAction.SendMessageToUser -> "send_msg_to_user(\"${action.message}\")"
-            is com.example.molmoagent.agent.AgentAction.Wait -> "wait()"
-        }
     }
 }

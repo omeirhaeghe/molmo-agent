@@ -5,9 +5,8 @@ import androidx.room.Room
 import com.example.molmoagent.data.AppDatabase
 import com.example.molmoagent.data.StepDao
 import com.example.molmoagent.data.TaskDao
-import com.example.molmoagent.inference.HuggingFaceClient
 import com.example.molmoagent.inference.InferenceClient
-import dagger.Binds
+import com.example.molmoagent.inference.InferenceClientManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -38,9 +37,9 @@ object AppModule {
 
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class InferenceModule {
+object InferenceModule {
 
-    @Binds
+    @Provides
     @Singleton
-    abstract fun bindInferenceClient(impl: HuggingFaceClient): InferenceClient
+    fun provideInferenceClient(manager: InferenceClientManager): InferenceClient = manager
 }

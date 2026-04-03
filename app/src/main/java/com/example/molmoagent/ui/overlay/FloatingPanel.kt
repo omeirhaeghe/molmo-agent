@@ -65,7 +65,7 @@ fun FloatingPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Molmo Agent",
+                    "Clawlando",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
