@@ -1,6 +1,7 @@
 package com.example.molmoagent.inference.local
 
 import android.content.Context
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,15 +24,6 @@ class ModelDownloadManager @Inject constructor(
         data class Downloading(val progressPercent: Int, val description: String = "") : DownloadState()
         data object Downloaded : DownloadState()
         data class Error(val message: String) : DownloadState()
-    }
-
-    companion object {
-        const val MODEL_FILENAME = "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"
-        const val MMPROJ_FILENAME = "mmproj-SmolVLM2-2.2B-Instruct-f16.gguf"
-
-        private const val BASE_URL = "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main"
-        const val MODEL_URL = "$BASE_URL/$MODEL_FILENAME"
-        const val MMPROJ_URL = "$BASE_URL/$MMPROJ_FILENAME"
     }
 
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.NotDownloaded)
@@ -81,9 +73,11 @@ class ModelDownloadManager @Inject constructor(
     suspend fun downloadModels() = withContext(Dispatchers.IO) {
         cancelRequested = false
         modelsDir.mkdirs()
+        Log.i(TAG, "[download] Starting model download to ${modelsDir.absolutePath}")
 
         try {
             // Download main model (~85% of total size)
+            Log.i(TAG, "[download] Downloading language model: $MODEL_URL")
             _downloadState.value = DownloadState.Downloading(0, "Downloading model...")
             downloadFile(MODEL_URL, File(modelsDir, MODEL_FILENAME)) { progress ->
                 if (cancelRequested) throw CancellationException("Download cancelled")
@@ -94,6 +88,7 @@ class ModelDownloadManager @Inject constructor(
             }
 
             // Download mmproj (~15% of total size)
+            Log.i(TAG, "[download] Language model done. Downloading vision projector: $MMPROJ_URL")
             _downloadState.value = DownloadState.Downloading(85, "Downloading vision projector...")
             downloadFile(MMPROJ_URL, File(modelsDir, MMPROJ_FILENAME)) { progress ->
                 if (cancelRequested) throw CancellationException("Download cancelled")
@@ -103,15 +98,28 @@ class ModelDownloadManager @Inject constructor(
                 )
             }
 
+            Log.i(TAG, "[download] All models downloaded successfully (${getDownloadedSizeBytes() / (1024 * 1024)} MB total)")
             _downloadState.value = DownloadState.Downloaded
         } catch (e: CancellationException) {
-            // Clean up partial files
+            Log.i(TAG, "[download] Download cancelled by user")
             File(modelsDir, "$MODEL_FILENAME.tmp").delete()
             File(modelsDir, "$MMPROJ_FILENAME.tmp").delete()
             _downloadState.value = DownloadState.NotDownloaded
         } catch (e: Exception) {
+            Log.e(TAG, "[download] Download failed: ${e.message}", e)
             _downloadState.value = DownloadState.Error(e.message ?: "Download failed")
         }
+    }
+
+    companion object {
+        const val MODEL_FILENAME = "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"
+        const val MMPROJ_FILENAME = "mmproj-SmolVLM2-2.2B-Instruct-f16.gguf"
+
+        private const val BASE_URL = "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main"
+        const val MODEL_URL = "$BASE_URL/$MODEL_FILENAME"
+        const val MMPROJ_URL = "$BASE_URL/$MMPROJ_FILENAME"
+
+        private const val TAG = "Clawlando"
     }
 
     fun cancelDownload() {

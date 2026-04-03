@@ -1,6 +1,7 @@
 package com.example.molmoagent.inference
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.example.molmoagent.agent.AgentStep
 import com.example.molmoagent.inference.local.LlamaCppBridge
 import com.example.molmoagent.inference.local.LocalInferenceClient
@@ -54,22 +55,32 @@ class InferenceClientManager @Inject constructor(
      * Returns a Result indicating success or failure.
      */
     suspend fun switchToLocal(): Result<Unit> {
+        Log.i(TAG, "[mode] Switching to LOCAL inference...")
         if (!LlamaCppBridge.isAvailable) {
+            Log.e(TAG, "[mode] Native library not available")
             return Result.failure(IllegalStateException("Local inference not available: native library failed to load"))
         }
         if (!downloadManager.isDownloaded) {
+            Log.e(TAG, "[mode] Model files not downloaded")
             return Result.failure(IllegalStateException("Model not downloaded"))
         }
         if (!llamaBridge.isModelLoaded()) {
+            Log.i(TAG, "[mode] Loading model into RAM...")
+            val t0 = System.currentTimeMillis()
             val loaded = llamaBridge.loadModel(
                 downloadManager.modelPath,
                 downloadManager.mmprojPath
             )
             if (!loaded) {
+                Log.e(TAG, "[mode] Model load failed after ${System.currentTimeMillis() - t0}ms")
                 return Result.failure(RuntimeException("Failed to load model. Device may not have enough RAM."))
             }
+            Log.i(TAG, "[mode] Model loaded in ${System.currentTimeMillis() - t0}ms")
+        } else {
+            Log.i(TAG, "[mode] Model already in RAM")
         }
         _mode.value = InferenceMode.LOCAL
+        Log.i(TAG, "[mode] Now using LOCAL inference")
         return Result.success(Unit)
     }
 
@@ -77,10 +88,16 @@ class InferenceClientManager @Inject constructor(
      * Switch to cloud inference. Optionally unloads the local model to free RAM.
      */
     fun switchToCloud(unloadLocal: Boolean = true) {
+        Log.i(TAG, "[mode] Switching to CLOUD inference (unloadLocal=$unloadLocal)")
         _mode.value = InferenceMode.CLOUD
         if (unloadLocal && llamaBridge.isModelLoaded()) {
             llamaBridge.unloadModel()
+            Log.i(TAG, "[mode] Local model unloaded from RAM")
         }
+    }
+
+    companion object {
+        private const val TAG = "Clawlando"
     }
 
     fun setMode(mode: InferenceMode) {

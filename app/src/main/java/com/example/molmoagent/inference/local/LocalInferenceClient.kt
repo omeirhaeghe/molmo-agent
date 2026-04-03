@@ -1,6 +1,7 @@
 package com.example.molmoagent.inference.local
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.example.molmoagent.agent.AgentStep
 import com.example.molmoagent.inference.ImageProcessor
 import com.example.molmoagent.inference.InferenceClient
@@ -33,13 +34,21 @@ class LocalInferenceClient @Inject constructor(
             throw IllegalStateException("Local model not loaded. Download and load the model first.")
         }
 
+        Log.i(TAG, "[local] Step ${previousSteps.size + 1} — preparing inference for: $taskGoal")
+
         // Convert bitmap to JPEG bytes (not base64 - JNI takes raw bytes)
         val resized = imageProcessor.resize(screenshot)
+        Log.d(TAG, "[local] Screenshot resized to ${resized.width}x${resized.height}")
         val stream = ByteArrayOutputStream()
         resized.compress(Bitmap.CompressFormat.JPEG, ImageProcessor.JPEG_QUALITY, stream)
         val imageBytes = stream.toByteArray()
+        Log.d(TAG, "[local] JPEG compressed: ${imageBytes.size / 1024} KB")
 
         val prompt = promptBuilder.buildPrompt(taskGoal, previousSteps)
+        Log.d(TAG, "[local] Prompt built (${prompt.length} chars, ${previousSteps.size} previous steps)")
+
+        Log.i(TAG, "[local] Calling JNI inference...")
+        val t0 = System.currentTimeMillis()
 
         val rawText = withTimeout(120_000) {
             llamaBridge.runVisionInference(
@@ -50,11 +59,22 @@ class LocalInferenceClient @Inject constructor(
             )
         }
 
+        val elapsed = System.currentTimeMillis() - t0
+        Log.i(TAG, "[local] JNI returned in ${elapsed}ms (${rawText.length} chars)")
+
         if (rawText.startsWith("ERROR:")) {
+            Log.e(TAG, "[local] Inference error: $rawText")
             throw RuntimeException(rawText)
         }
 
-        responseParser.parse(rawText)
+        val response = responseParser.parse(rawText)
+        Log.i(TAG, "[local] Parsed — thought: ${response.thought.take(80)}...")
+        Log.i(TAG, "[local] Parsed — action: ${response.action}")
+        response
+    }
+
+    companion object {
+        private const val TAG = "Clawlando"
     }
 
     override suspend fun testConnection(): Boolean {
