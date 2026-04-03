@@ -17,8 +17,8 @@ import javax.inject.Singleton
 
 @Singleton
 class HuggingFaceClient @Inject constructor(
-    private val imageProcessor: ImageProcessor,
-    private val promptBuilder: MolmoPromptBuilder
+    val imageProcessor: ImageProcessor,
+    val promptBuilder: MolmoPromptBuilder
 ) : InferenceClient {
 
     private val gson = Gson()

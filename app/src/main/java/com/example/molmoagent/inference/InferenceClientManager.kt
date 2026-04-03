@@ -12,7 +12,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Manages switching between cloud (HuggingFace) and local (SmolVLM) inference.
+ * Manages switching between cloud (MolmoWeb), Qwen (Qwen2.5-VL), and local (SmolVLM) inference.
  * Implements InferenceClient so AgentLoop can use it transparently.
  */
 @Singleton
@@ -23,7 +23,10 @@ class InferenceClientManager @Inject constructor(
     private val downloadManager: ModelDownloadManager
 ) : InferenceClient {
 
-    enum class InferenceMode { CLOUD, LOCAL }
+    enum class InferenceMode { CLOUD, QWEN, LOCAL }
+
+    // Separate HuggingFaceClient instance for Qwen (same API format, different endpoint)
+    private val qwenClient = HuggingFaceClient(cloudClient.imageProcessor, cloudClient.promptBuilder)
 
     private val _mode = MutableStateFlow(InferenceMode.CLOUD)
     val mode: StateFlow<InferenceMode> = _mode
@@ -32,9 +35,14 @@ class InferenceClientManager @Inject constructor(
         get() = cloudClient.endpointUrl
         set(value) { cloudClient.endpointUrl = value }
 
+    var qwenEndpointUrl: String
+        get() = qwenClient.endpointUrl
+        set(value) { qwenClient.endpointUrl = value }
+
     private val activeClient: InferenceClient
         get() = when (_mode.value) {
             InferenceMode.CLOUD -> cloudClient
+            InferenceMode.QWEN -> qwenClient
             InferenceMode.LOCAL -> localClient
         }
 
@@ -48,6 +56,18 @@ class InferenceClientManager @Inject constructor(
 
     override suspend fun testConnection(): Boolean {
         return activeClient.testConnection()
+    }
+
+    /**
+     * Switch to Qwen cloud inference.
+     */
+    fun switchToQwen(unloadLocal: Boolean = true) {
+        Log.i(TAG, "[mode] Switching to QWEN inference")
+        _mode.value = InferenceMode.QWEN
+        if (unloadLocal && llamaBridge.isModelLoaded()) {
+            llamaBridge.unloadModel()
+            Log.i(TAG, "[mode] Local model unloaded from RAM")
+        }
     }
 
     /**

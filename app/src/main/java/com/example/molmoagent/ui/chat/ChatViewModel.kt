@@ -40,6 +40,7 @@ class ChatViewModel @Inject constructor(
 
     companion object {
         val ENDPOINT_URL_KEY = stringPreferencesKey("endpoint_url")
+        val QWEN_ENDPOINT_URL_KEY = stringPreferencesKey("qwen_endpoint_url")
         val MAX_STEPS_KEY = intPreferencesKey("max_steps")
         val INFERENCE_MODE_KEY = stringPreferencesKey("inference_mode")
     }
@@ -49,6 +50,10 @@ class ChatViewModel @Inject constructor(
 
     val endpointUrl: StateFlow<String> = context.dataStore.data
         .map { it[ENDPOINT_URL_KEY] ?: "" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val qwenEndpointUrl: StateFlow<String> = context.dataStore.data
+        .map { it[QWEN_ENDPOINT_URL_KEY] ?: "" }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     val maxSteps: StateFlow<Int> = context.dataStore.data
@@ -73,29 +78,38 @@ class ChatViewModel @Inject constructor(
             if (url.isNotEmpty()) {
                 inferenceClientManager.endpointUrl = url
             }
+            val qwenUrl = prefs[QWEN_ENDPOINT_URL_KEY] ?: ""
+            if (qwenUrl.isNotEmpty()) {
+                inferenceClientManager.qwenEndpointUrl = qwenUrl
+            }
 
             // Restore saved inference mode — must actually load the model
             val savedMode = prefs[INFERENCE_MODE_KEY] ?: "CLOUD"
-            if (savedMode == "LOCAL" && downloadManager.isDownloaded) {
-                _isLoadingModel.value = true
-                val result = inferenceClientManager.switchToLocal()
-                _isLoadingModel.value = false
-                if (result.isFailure) {
-                    _localModeError.value = result.exceptionOrNull()?.message
-                        ?: "Failed to load model on startup"
+            when (savedMode) {
+                "LOCAL" -> if (downloadManager.isDownloaded) {
+                    _isLoadingModel.value = true
+                    val result = inferenceClientManager.switchToLocal()
+                    _isLoadingModel.value = false
+                    if (result.isFailure) {
+                        _localModeError.value = result.exceptionOrNull()?.message
+                            ?: "Failed to load model on startup"
+                    }
                 }
+                "QWEN" -> inferenceClientManager.switchToQwen(unloadLocal = false)
             }
         }
     }
 
-    fun saveSettings(endpointUrl: String, maxSteps: Int, mode: InferenceClientManager.InferenceMode) {
+    fun saveSettings(endpointUrl: String, qwenEndpointUrl: String, maxSteps: Int, mode: InferenceClientManager.InferenceMode) {
         viewModelScope.launch {
             context.dataStore.edit { prefs ->
                 prefs[ENDPOINT_URL_KEY] = endpointUrl
+                prefs[QWEN_ENDPOINT_URL_KEY] = qwenEndpointUrl
                 prefs[MAX_STEPS_KEY] = maxSteps
                 prefs[INFERENCE_MODE_KEY] = mode.name
             }
             inferenceClientManager.endpointUrl = endpointUrl
+            inferenceClientManager.qwenEndpointUrl = qwenEndpointUrl
         }
     }
 
@@ -108,25 +122,30 @@ class ChatViewModel @Inject constructor(
 
     fun setInferenceMode(mode: InferenceClientManager.InferenceMode) {
         viewModelScope.launch {
-            if (mode == InferenceClientManager.InferenceMode.LOCAL) {
-                if (!LlamaCppBridge.isAvailable) {
-                    _localModeError.value = "Local inference not available: native library failed to load"
-                    inferenceClientManager.switchToCloud(unloadLocal = false)
-                    return@launch
+            when (mode) {
+                InferenceClientManager.InferenceMode.LOCAL -> {
+                    if (!LlamaCppBridge.isAvailable) {
+                        _localModeError.value = "Local inference not available: native library failed to load"
+                        inferenceClientManager.switchToCloud(unloadLocal = false)
+                        return@launch
+                    }
+                    _localModeError.value = null
+                    _isLoadingModel.value = true
+                    val result = inferenceClientManager.switchToLocal()
+                    _isLoadingModel.value = false
+                    if (result.isFailure) {
+                        _localModeError.value = result.exceptionOrNull()?.message
+                            ?: "Failed to load model"
+                        inferenceClientManager.switchToCloud(unloadLocal = false)
+                        return@launch
+                    }
                 }
-                _localModeError.value = null
-                _isLoadingModel.value = true
-                val result = inferenceClientManager.switchToLocal()
-                _isLoadingModel.value = false
-                if (result.isFailure) {
-                    _localModeError.value = result.exceptionOrNull()?.message
-                        ?: "Failed to load model"
-                    // Explicitly revert to cloud so UI and backend stay in sync
-                    inferenceClientManager.switchToCloud(unloadLocal = false)
-                    return@launch
+                InferenceClientManager.InferenceMode.QWEN -> {
+                    inferenceClientManager.switchToQwen()
                 }
-            } else {
-                inferenceClientManager.switchToCloud()
+                InferenceClientManager.InferenceMode.CLOUD -> {
+                    inferenceClientManager.switchToCloud()
+                }
             }
 
             context.dataStore.edit { prefs ->
@@ -154,15 +173,31 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun testConnection(url: String): Boolean {
-        val original = inferenceClientManager.endpointUrl
-        inferenceClientManager.endpointUrl = url
-        val result = try {
-            inferenceClientManager.testConnection()
-        } catch (_: Exception) {
-            false
+    suspend fun testConnection(url: String, isQwen: Boolean = false): Boolean {
+        if (isQwen) {
+            val original = inferenceClientManager.qwenEndpointUrl
+            inferenceClientManager.qwenEndpointUrl = url
+            // Temporarily switch to qwen to test its client
+            val originalMode = inferenceClientManager.mode.value
+            inferenceClientManager.setMode(InferenceClientManager.InferenceMode.QWEN)
+            val result = try {
+                inferenceClientManager.testConnection()
+            } catch (_: Exception) {
+                false
+            }
+            inferenceClientManager.setMode(originalMode)
+            inferenceClientManager.qwenEndpointUrl = original
+            return result
+        } else {
+            val original = inferenceClientManager.endpointUrl
+            inferenceClientManager.endpointUrl = url
+            val result = try {
+                inferenceClientManager.testConnection()
+            } catch (_: Exception) {
+                false
+            }
+            inferenceClientManager.endpointUrl = original
+            return result
         }
-        inferenceClientManager.endpointUrl = original
-        return result
     }
 }

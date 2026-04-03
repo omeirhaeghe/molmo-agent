@@ -69,7 +69,7 @@ class LocalInferenceClient @Inject constructor(
 
         val response = responseParser.parse(rawText)
         Log.i(TAG, "[local] Parsed — thought: ${response.thought.take(80)}...")
-        Log.i(TAG, "[local] Parsed — action: ${response.action}")
+        Log.i(TAG, "[local] Parsed — action: ${response.rawAction}")
         response
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -28,13 +29,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     currentEndpointUrl: String,
+    currentQwenEndpointUrl: String,
     currentMaxSteps: Int,
     currentInferenceMode: InferenceMode,
     downloadState: DownloadState,
     isLoadingModel: Boolean,
     localModeError: String?,
-    onSave: (endpointUrl: String, maxSteps: Int, mode: InferenceMode) -> Unit,
+    onSave: (endpointUrl: String, qwenEndpointUrl: String, maxSteps: Int, mode: InferenceMode) -> Unit,
     onTestConnection: suspend (url: String) -> Boolean,
+    onTestQwenConnection: suspend (url: String) -> Boolean,
     onInferenceModeChanged: (InferenceMode) -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -42,10 +45,13 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     var endpointUrl by remember { mutableStateOf(currentEndpointUrl) }
+    var qwenEndpointUrl by remember { mutableStateOf(currentQwenEndpointUrl) }
     var maxSteps by remember { mutableStateOf(currentMaxSteps.toString()) }
     var selectedMode by remember { mutableStateOf(currentInferenceMode) }
     var testResult by remember { mutableStateOf<Boolean?>(null) }
+    var qwenTestResult by remember { mutableStateOf<Boolean?>(null) }
     var isTesting by remember { mutableStateOf(false) }
+    var isQwenTesting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -77,7 +83,7 @@ fun SettingsScreen(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
                     selected = selectedMode == InferenceMode.CLOUD,
@@ -85,9 +91,21 @@ fun SettingsScreen(
                         selectedMode = InferenceMode.CLOUD
                         onInferenceModeChanged(InferenceMode.CLOUD)
                     },
-                    label = { Text("Cloud") },
+                    label = { Text("Cloud", fontSize = 12.sp) },
                     leadingIcon = {
-                        Icon(Icons.Default.Cloud, null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Cloud, null, modifier = Modifier.size(16.dp))
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = selectedMode == InferenceMode.QWEN,
+                    onClick = {
+                        selectedMode = InferenceMode.QWEN
+                        onInferenceModeChanged(InferenceMode.QWEN)
+                    },
+                    label = { Text("Qwen", fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp))
                     },
                     modifier = Modifier.weight(1f)
                 )
@@ -100,9 +118,9 @@ fun SettingsScreen(
                         }
                     },
                     enabled = downloadState !is DownloadState.Downloading,
-                    label = { Text("Local") },
+                    label = { Text("Local", fontSize = 12.sp) },
                     leadingIcon = {
-                        Icon(Icons.Default.PhoneAndroid, null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.PhoneAndroid, null, modifier = Modifier.size(16.dp))
                     },
                     modifier = Modifier.weight(1f)
                 )
@@ -157,6 +175,71 @@ fun SettingsScreen(
                     }
 
                     testResult?.let { success ->
+                        if (success) {
+                            Icon(Icons.Default.Check, null, tint = Color(0xFF4CAF50))
+                            Text("Connected", color = Color(0xFF4CAF50), fontSize = 13.sp)
+                        } else {
+                            Text("Failed to connect", color = Color(0xFFF44336), fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+
+            // Qwen Settings (show when qwen is selected)
+            if (selectedMode == InferenceMode.QWEN) {
+                Text(
+                    "Qwen2.5-VL-7B (HuggingFace Endpoint)",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp
+                )
+
+                Text(
+                    "Deploy Qwen2.5-VL-7B-Instruct on a HuggingFace Inference Endpoint with TGI. Uses the OpenAI-compatible chat completions API.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+
+                OutlinedTextField(
+                    value = qwenEndpointUrl,
+                    onValueChange = {
+                        qwenEndpointUrl = it
+                        qwenTestResult = null
+                    },
+                    label = { Text("Qwen Endpoint URL") },
+                    placeholder = { Text("https://your-qwen-endpoint.endpoints.huggingface.cloud") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) }
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            isQwenTesting = true
+                            qwenTestResult = null
+                            scope.launch {
+                                qwenTestResult = onTestQwenConnection(qwenEndpointUrl)
+                                isQwenTesting = false
+                            }
+                        },
+                        enabled = qwenEndpointUrl.isNotBlank() && !isQwenTesting,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isQwenTesting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text("Test Connection")
+                    }
+
+                    qwenTestResult?.let { success ->
                         if (success) {
                             Icon(Icons.Default.Check, null, tint = Color(0xFF4CAF50))
                             Text("Connected", color = Color(0xFF4CAF50), fontSize = 13.sp)
@@ -253,6 +336,7 @@ fun SettingsScreen(
                     }
                     onSave(
                         endpointUrl,
+                        qwenEndpointUrl,
                         maxSteps.toIntOrNull()?.coerceIn(1, 50) ?: 15,
                         modeToSave
                     )
