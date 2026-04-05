@@ -43,6 +43,26 @@ class HuggingFaceClient @Inject constructor(
         parseResponse(response)
     }
 
+    override suspend fun summarizeTask(goal: String, steps: List<AgentStep>): String = withContext(Dispatchers.IO) {
+        val stepsText = steps.joinToString("\n") { step ->
+            "  ${step.stepNumber}. ${MolmoPromptBuilder.formatAction(step.action)}"
+        }
+
+        val userPrompt = """
+            I just completed this task: "$goal"
+
+            Here are the actions I took:
+            $stepsText
+
+            Write a friendly 2–3 sentence summary in first person (starting with "I") describing what you did to complete the task. Mention the key actions taken. Be conversational and concise — no bullet points, just plain sentences.
+        """.trimIndent()
+
+        callTextEndpoint(
+            systemPrompt = "You are a helpful assistant that summarises completed phone automation tasks in plain, friendly language.",
+            userPrompt = userPrompt
+        )
+    }
+
     override suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
         // Any HTTP response (even 4xx/5xx) means the endpoint is reachable.
         // Only a thrown exception (DNS failure, connection refused, SSL error) means it's down.
@@ -128,6 +148,38 @@ class HuggingFaceClient @Inject constructor(
         }
 
         return extractGeneratedText(responseBody)
+    }
+
+    private fun callTextEndpoint(systemPrompt: String, userPrompt: String): String {
+        val messages = JsonArray().apply {
+            add(JsonObject().apply {
+                addProperty("role", "system")
+                addProperty("content", systemPrompt)
+            })
+            add(JsonObject().apply {
+                addProperty("role", "user")
+                addProperty("content", userPrompt)
+            })
+        }
+
+        val payload = JsonObject().apply {
+            add("messages", messages)
+            addProperty("max_tokens", 256)
+            addProperty("temperature", 0.7)
+        }
+
+        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("$endpointUrl/v1/chat/completions")
+            .post(body)
+            .addHeader("Content-Type", "application/json")
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        val responseBody = response.body?.string()
+            ?: throw RuntimeException("Empty response from summary call")
+        if (!response.isSuccessful) throw RuntimeException("Summary failed (${response.code}): $responseBody")
+        return extractGeneratedText(responseBody).trim()
     }
 
     private fun extractGeneratedText(responseBody: String): String {

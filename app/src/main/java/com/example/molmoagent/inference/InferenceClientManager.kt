@@ -46,6 +46,10 @@ class InferenceClientManager @Inject constructor(
         return activeClient.predictNextAction(screenshot, taskGoal, previousSteps)
     }
 
+    override suspend fun summarizeTask(goal: String, steps: List<AgentStep>): String {
+        return activeClient.summarizeTask(goal, steps)
+    }
+
     override suspend fun testConnection(): Boolean {
         return activeClient.testConnection()
     }

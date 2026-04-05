@@ -115,7 +115,16 @@ class AgentLoop @Inject constructor(
             // 4. Check for completion
             if (action is AgentAction.SendMessageToUser) {
                 taskHistory.addStep(step.copy(result = ActionResult.Success))
-                _completionMessage.value = action.message
+                // Ask the model to narrate what it did in friendly first-person language
+                val summary = try {
+                    inferenceClient.summarizeTask(task, taskHistory.getSteps())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w("Clawlando", "[AgentLoop] summarizeTask failed: ${e.message}")
+                    action.message // fall back to the model's original completion message
+                }
+                _completionMessage.value = summary
                 _state.value = AgentState.COMPLETED
                 return
             }

@@ -20,6 +20,12 @@ interface InferenceClient {
     ): ModelResponse
 
     /**
+     * Ask the model to narrate what it did to complete a task, given the full step history.
+     * Returns a friendly first-person summary of the actions taken.
+     */
+    suspend fun summarizeTask(goal: String, steps: List<AgentStep>): String
+
+    /**
      * Test the connection to the inference server.
      */
     suspend fun testConnection(): Boolean

@@ -3,9 +3,11 @@ package com.example.molmoagent.inference.local
 import android.graphics.Bitmap
 import android.util.Log
 import com.example.molmoagent.agent.AgentStep
+import com.example.molmoagent.agent.AgentAction
 import com.example.molmoagent.inference.ImageProcessor
 import com.example.molmoagent.inference.InferenceClient
 import com.example.molmoagent.inference.ModelResponse
+import com.example.molmoagent.inference.MolmoPromptBuilder
 import com.example.molmoagent.inference.ResponseParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,6 +77,22 @@ class LocalInferenceClient @Inject constructor(
 
     companion object {
         private const val TAG = "Clawlando"
+    }
+
+    override suspend fun summarizeTask(goal: String, steps: List<AgentStep>): String {
+        // Local model is vision-only and slow; build a simple text summary instead of running inference.
+        val actionDescriptions = steps.mapNotNull { step ->
+            when (val a = step.action) {
+                is AgentAction.SendMessageToUser -> null // skip final completion message
+                else -> MolmoPromptBuilder.formatAction(a)
+            }
+        }
+        return if (actionDescriptions.isEmpty()) {
+            "I completed the task: \"$goal\"."
+        } else {
+            val list = actionDescriptions.joinToString(", ")
+            "I completed \"$goal\" by taking ${actionDescriptions.size} action(s): $list."
+        }
     }
 
     override suspend fun testConnection(): Boolean {
