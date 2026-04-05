@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -14,6 +15,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import kotlin.math.sqrt
 
 class AgentAccessibilityService : AccessibilityService() {
 
@@ -51,11 +53,14 @@ class AgentAccessibilityService : AccessibilityService() {
             mainExecutor,
             object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
+                    val bufW = screenshot.hardwareBuffer.width
+                    val bufH = screenshot.hardwareBuffer.height
                     val bitmap = Bitmap.wrapHardwareBuffer(
                         screenshot.hardwareBuffer,
                         screenshot.colorSpace
                     )
                     screenshot.hardwareBuffer.close()
+                    Log.d("Clawlando", "[screenshot] hardwareBuffer=${bufW}x${bufH} bitmap=${bitmap?.width}x${bitmap?.height}")
                     cont.resume(bitmap)
                 }
 
@@ -179,6 +184,67 @@ class AgentAccessibilityService : AccessibilityService() {
             if (found != null) return found
         }
         return null
+    }
+
+    /**
+     * Returns true if the active window belongs to a home screen launcher.
+     */
+    fun isOnHomeScreen(): Boolean {
+        val pkg = rootInActiveWindow?.packageName?.toString() ?: return false
+        return pkg.contains("launcher", ignoreCase = true) ||
+               pkg.contains("home", ignoreCase = true) ||
+               pkg == "com.sec.android.app.launcher" ||
+               pkg == "com.google.android.apps.nexuslauncher"
+    }
+
+    /**
+     * Find the best clickable accessibility node at or near pixel coordinates (x, y).
+     *
+     * Strategy:
+     *  1. Return the smallest node whose bounds contain (x, y) — exact hit.
+     *  2. If no exact hit, return the node whose centre is closest to (x, y).
+     *
+     * This compensates for the model's imprecise coordinate predictions.
+     */
+    fun findBestClickableNode(x: Float, y: Float): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow ?: return null
+        val candidates = mutableListOf<AccessibilityNodeInfo>()
+        collectClickableNodes(root, candidates)
+        if (candidates.isEmpty()) return null
+
+        val xi = x.toInt(); val yi = y.toInt()
+
+        // Exact hit: prefer the smallest containing node (deepest / most specific)
+        val exact = candidates.filter { node ->
+            val b = Rect(); node.getBoundsInScreen(b); b.contains(xi, yi)
+        }.minByOrNull { node ->
+            val b = Rect(); node.getBoundsInScreen(b); b.width().toLong() * b.height()
+        }
+        if (exact != null) {
+            Log.d("Clawlando", "[smartClick] exact node hit: ${exact.contentDescription ?: exact.text} class=${exact.className}")
+            return exact
+        }
+
+        // Nearest centre fallback
+        val nearest = candidates.minByOrNull { node ->
+            val b = Rect(); node.getBoundsInScreen(b)
+            val dx = b.exactCenterX() - x; val dy = b.exactCenterY() - y
+            sqrt((dx * dx + dy * dy).toDouble())
+        }
+        if (nearest != null) {
+            val b = Rect(); nearest.getBoundsInScreen(b)
+            val dist = sqrt(((b.exactCenterX()-x)*(b.exactCenterX()-x) + (b.exactCenterY()-y)*(b.exactCenterY()-y)).toDouble())
+            Log.d("Clawlando", "[smartClick] nearest node dist=${dist.toInt()}px: ${nearest.contentDescription ?: nearest.text} class=${nearest.className} bounds=$b")
+        }
+        return nearest
+    }
+
+    private fun collectClickableNodes(node: AccessibilityNodeInfo, out: MutableList<AccessibilityNodeInfo>) {
+        if (node.isClickable && node.isVisibleToUser && node.isEnabled) out.add(node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectClickableNodes(child, out)
+        }
     }
 
     companion object {

@@ -1,5 +1,7 @@
 # Clawlando
 
+> **🔴 Known issue:** Tap coordinates are currently unreliable — the agent frequently taps in the wrong area of the screen. This is a known bug under investigation, likely a coordinate scaling issue between the model's output space and the device's physical display. Actions that do not require precise tapping (scrolling, text input, app launching via `open_app`) work correctly.
+
 An open-source Android "computer use" agent. Tell it what to do in plain English and it takes screenshots, reasons about the UI, and executes taps, swipes, and text input on your phone autonomously.
 
 ## How it works

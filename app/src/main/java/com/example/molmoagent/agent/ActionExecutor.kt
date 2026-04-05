@@ -3,6 +3,8 @@ package com.example.molmoagent.agent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
+import android.view.accessibility.AccessibilityNodeInfo
 import com.example.molmoagent.accessibility.AgentAccessibilityService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
@@ -20,6 +22,39 @@ class ActionExecutor @Inject constructor(
 
         return when (action) {
             is AgentAction.Click -> {
+                val pixelX = action.normX * service.gestureDispatcher.displayWidth
+                val pixelY = action.normY * service.gestureDispatcher.displayHeight
+
+                // On the home screen, use accessibility click on the nearest icon.
+                // The model's coordinate precision is often insufficient to hit small icons
+                // via gesture; node-based clicking is exact and reliable.
+                if (service.isOnHomeScreen()) {
+                    val node = service.findBestClickableNode(pixelX, pixelY)
+                    if (node != null) {
+                        val label = node.contentDescription?.toString() ?: node.text?.toString()
+                        Log.d("Clawlando", "[smartClick] home screen: clicking node '$label'")
+                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return ActionResult.Success
+                    }
+                }
+
+                // For in-app: try exact hit via accessibility first, fall back to gesture
+                val node = service.findBestClickableNode(pixelX, pixelY)
+                if (node != null) {
+                    val b = android.graphics.Rect(); node.getBoundsInScreen(b)
+                    val dist = kotlin.math.sqrt(
+                        ((b.exactCenterX()-pixelX)*(b.exactCenterX()-pixelX) +
+                         (b.exactCenterY()-pixelY)*(b.exactCenterY()-pixelY)).toDouble()
+                    )
+                    // Only use accessibility click if within 80px — avoids clicking wrong element
+                    if (dist <= 80) {
+                        Log.d("Clawlando", "[smartClick] in-app accessibility click dist=${dist.toInt()}px")
+                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return ActionResult.Success
+                    }
+                }
+
+                // Fall back to gesture
                 service.gestureDispatcher.tapNormalized(action.normX, action.normY)
             }
 
