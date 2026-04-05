@@ -2,7 +2,10 @@ package com.example.molmoagent.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.graphics.Path
+import android.util.Log
+import android.view.WindowManager
 import com.example.molmoagent.agent.ActionResult
 import com.example.molmoagent.agent.ScrollDirection
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -10,16 +13,25 @@ import kotlin.coroutines.resume
 
 class GestureDispatcher(private val service: AccessibilityService) {
 
-    private val displayWidth: Int
-        get() = service.resources.displayMetrics.widthPixels
+    // Use currentWindowMetrics.bounds which always reflects the full physical display
+    // (including system bars). displayMetrics.heightPixels may exclude the status bar
+    // or nav bar in a Service context, causing coordinates to be mapped against a
+    // smaller height than the screenshot's actual 2992px.
+    private val windowManager: WindowManager
+        get() = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-    private val displayHeight: Int
-        get() = service.resources.displayMetrics.heightPixels
+    val displayWidth: Int
+        get() = windowManager.currentWindowMetrics.bounds.width()
+
+    val displayHeight: Int
+        get() = windowManager.currentWindowMetrics.bounds.height()
 
     /**
      * Tap at pixel coordinates.
      */
     suspend fun tap(x: Float, y: Float): ActionResult {
+        Log.d("Clawlando", "[GestureDispatcher] tap($x, $y) on ${displayWidth}x${displayHeight} screen")
+        (service as? AgentAccessibilityService)?.tapIndicator?.show(x, y)
         val path = Path().apply { moveTo(x, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0L, 100L)
         return dispatchGesture(stroke)
@@ -96,18 +108,25 @@ class GestureDispatcher(private val service: AccessibilityService) {
                 .addStroke(stroke)
                 .build()
 
-            service.dispatchGesture(
+            val dispatched = service.dispatchGesture(
                 gesture,
                 object : AccessibilityService.GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription) {
-                        cont.resume(ActionResult.Success)
+                        Log.d("Clawlando", "[GestureDispatcher] onCompleted")
+                        if (cont.isActive) cont.resume(ActionResult.Success)
                     }
 
                     override fun onCancelled(gestureDescription: GestureDescription) {
-                        cont.resume(ActionResult.Failure("Gesture was cancelled"))
+                        Log.w("Clawlando", "[GestureDispatcher] onCancelled")
+                        if (cont.isActive) cont.resume(ActionResult.Failure("Gesture was cancelled by system"))
                     }
                 },
                 null
             )
+
+            if (!dispatched) {
+                Log.e("Clawlando", "[GestureDispatcher] dispatchGesture returned false — not dispatched")
+                if (cont.isActive) cont.resume(ActionResult.Failure("dispatchGesture returned false"))
+            }
         }
 }

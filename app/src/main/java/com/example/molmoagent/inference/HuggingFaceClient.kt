@@ -1,6 +1,7 @@
 package com.example.molmoagent.inference
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.example.molmoagent.agent.AgentStep
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -43,16 +44,29 @@ class HuggingFaceClient @Inject constructor(
     }
 
     override suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url(endpointUrl)
-                .get()
-                .build()
-            val response = httpClient.newCall(request).execute()
-            response.isSuccessful || response.code == 405 // Some endpoints only accept POST
-        } catch (e: Exception) {
-            false
+        // Any HTTP response (even 4xx/5xx) means the endpoint is reachable.
+        // Only a thrown exception (DNS failure, connection refused, SSL error) means it's down.
+        val candidates = listOf("$endpointUrl/health", "$endpointUrl/v1/models")
+        for (url in candidates) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .build()
+                val response = httpClient.newCall(request).execute()
+                val code = response.code
+                response.body?.close()
+                Log.i(TAG, "[testConnection] $url → HTTP $code")
+                return@withContext true
+            } catch (e: Exception) {
+                Log.w(TAG, "[testConnection] $url → exception: ${e.message}")
+            }
         }
+        false
+    }
+
+    companion object {
+        private const val TAG = "Clawlando"
     }
 
     private fun callEndpoint(prompt: String, base64Image: String): String {

@@ -7,8 +7,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -25,19 +25,25 @@ import com.example.molmoagent.inference.InferenceClientManager.InferenceMode
 import com.example.molmoagent.inference.local.ModelDownloadManager.DownloadState
 import kotlinx.coroutines.launch
 
+// Predefined model endpoints — selecting one auto-fills the URL field.
+private data class ModelPreset(val label: String, val endpoint: String)
+
+private val MODEL_PRESETS = listOf(
+    ModelPreset("Qwen2.5-VL-7B", "https://dmuxtqvqoal6yvu1.us-east-1.aws.endpoints.huggingface.cloud"),
+    ModelPreset("Custom endpoint", "")
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     currentEndpointUrl: String,
-    currentQwenEndpointUrl: String,
     currentMaxSteps: Int,
     currentInferenceMode: InferenceMode,
     downloadState: DownloadState,
     isLoadingModel: Boolean,
     localModeError: String?,
-    onSave: (endpointUrl: String, qwenEndpointUrl: String, maxSteps: Int, mode: InferenceMode) -> Unit,
+    onSave: (endpointUrl: String, maxSteps: Int, mode: InferenceMode) -> Unit,
     onTestConnection: suspend (url: String) -> Boolean,
-    onTestQwenConnection: suspend (url: String) -> Boolean,
     onInferenceModeChanged: (InferenceMode) -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -45,14 +51,17 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     var endpointUrl by remember { mutableStateOf(currentEndpointUrl) }
-    var qwenEndpointUrl by remember { mutableStateOf(currentQwenEndpointUrl) }
     var maxSteps by remember { mutableStateOf(currentMaxSteps.toString()) }
     var selectedMode by remember { mutableStateOf(currentInferenceMode) }
     var testResult by remember { mutableStateOf<Boolean?>(null) }
-    var qwenTestResult by remember { mutableStateOf<Boolean?>(null) }
     var isTesting by remember { mutableStateOf(false) }
-    var isQwenTesting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Determine which preset matches the current URL (default to first preset)
+    val initialPreset = MODEL_PRESETS.firstOrNull { it.endpoint == currentEndpointUrl }
+        ?: MODEL_PRESETS.last()
+    var selectedPreset by remember { mutableStateOf(initialPreset) }
+    var dropdownExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -74,12 +83,8 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // Inference Backend Selection
-            Text(
-                "Inference Backend",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
+            // ── Inference Backend ────────────────────────────────────────────
+            Text("Inference Backend", fontWeight = FontWeight.Bold, fontSize = 18.sp)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -92,21 +97,7 @@ fun SettingsScreen(
                         onInferenceModeChanged(InferenceMode.CLOUD)
                     },
                     label = { Text("Cloud", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Cloud, null, modifier = Modifier.size(16.dp))
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                FilterChip(
-                    selected = selectedMode == InferenceMode.QWEN,
-                    onClick = {
-                        selectedMode = InferenceMode.QWEN
-                        onInferenceModeChanged(InferenceMode.QWEN)
-                    },
-                    label = { Text("Qwen", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp))
-                    },
+                    leadingIcon = { Icon(Icons.Default.Cloud, null, Modifier.size(16.dp)) },
                     modifier = Modifier.weight(1f)
                 )
                 FilterChip(
@@ -119,28 +110,69 @@ fun SettingsScreen(
                     },
                     enabled = downloadState !is DownloadState.Downloading,
                     label = { Text("Local", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.PhoneAndroid, null, modifier = Modifier.size(16.dp))
-                    },
+                    leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(16.dp)) },
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            // Cloud Settings (show when cloud is selected)
+            // ── Cloud Settings ───────────────────────────────────────────────
             if (selectedMode == InferenceMode.CLOUD) {
-                Text(
-                    "Cloud Inference (MolmoWeb-8B)",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 15.sp
-                )
+                Text("Cloud Model", fontWeight = FontWeight.Medium, fontSize = 15.sp)
 
+                // Model picker dropdown
+                ExposedDropdownMenuBox(
+                    expanded = dropdownExpanded,
+                    onExpandedChange = { dropdownExpanded = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = selectedPreset.label,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Model") },
+                        trailingIcon = {
+                            Icon(Icons.Default.ArrowDropDown, null)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = dropdownExpanded,
+                        onDismissRequest = { dropdownExpanded = false }
+                    ) {
+                        MODEL_PRESETS.forEach { preset ->
+                            DropdownMenuItem(
+                                text = { Text(preset.label) },
+                                onClick = {
+                                    selectedPreset = preset
+                                    if (preset.endpoint.isNotEmpty()) {
+                                        endpointUrl = preset.endpoint
+                                    }
+                                    testResult = null
+                                    dropdownExpanded = false
+                                },
+                                trailingIcon = if (preset == selectedPreset) {
+                                    { Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) }
+                                } else null
+                            )
+                        }
+                    }
+                }
+
+                // Endpoint URL field
                 OutlinedTextField(
                     value = endpointUrl,
                     onValueChange = {
                         endpointUrl = it
                         testResult = null
+                        // Switch to Custom if URL no longer matches a preset
+                        if (MODEL_PRESETS.none { p -> p.endpoint == it }) {
+                            selectedPreset = MODEL_PRESETS.last()
+                        }
                     },
-                    label = { Text("HuggingFace Endpoint URL") },
+                    label = { Text("Endpoint URL") },
                     placeholder = { Text("https://your-endpoint.endpoints.huggingface.cloud") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -165,10 +197,7 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         if (isTesting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
                         }
                         Text("Test Connection")
@@ -185,78 +214,9 @@ fun SettingsScreen(
                 }
             }
 
-            // Qwen Settings (show when qwen is selected)
-            if (selectedMode == InferenceMode.QWEN) {
-                Text(
-                    "Qwen2.5-VL-7B (HuggingFace Endpoint)",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 15.sp
-                )
-
-                Text(
-                    "Deploy Qwen2.5-VL-7B-Instruct on a HuggingFace Inference Endpoint with TGI. Uses the OpenAI-compatible chat completions API.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-
-                OutlinedTextField(
-                    value = qwenEndpointUrl,
-                    onValueChange = {
-                        qwenEndpointUrl = it
-                        qwenTestResult = null
-                    },
-                    label = { Text("Qwen Endpoint URL") },
-                    placeholder = { Text("https://your-qwen-endpoint.endpoints.huggingface.cloud") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) }
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            isQwenTesting = true
-                            qwenTestResult = null
-                            scope.launch {
-                                qwenTestResult = onTestQwenConnection(qwenEndpointUrl)
-                                isQwenTesting = false
-                            }
-                        },
-                        enabled = qwenEndpointUrl.isNotBlank() && !isQwenTesting,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        if (isQwenTesting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text("Test Connection")
-                    }
-
-                    qwenTestResult?.let { success ->
-                        if (success) {
-                            Icon(Icons.Default.Check, null, tint = Color(0xFF4CAF50))
-                            Text("Connected", color = Color(0xFF4CAF50), fontSize = 13.sp)
-                        } else {
-                            Text("Failed to connect", color = Color(0xFFF44336), fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-
-            // Local Settings (show when local is selected)
+            // ── Local Settings ───────────────────────────────────────────────
             if (selectedMode == InferenceMode.LOCAL) {
-                Text(
-                    "Local Inference (SmolVLM2-2.2B)",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 15.sp
-                )
+                Text("Local Inference (SmolVLM2-2.2B)", fontWeight = FontWeight.Medium, fontSize = 15.sp)
 
                 Text(
                     "Runs entirely on your device. No cloud server needed. Requires ~3GB RAM.",
@@ -264,7 +224,6 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
 
-                // Show error if model loading failed
                 localModeError?.let { error ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -293,12 +252,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(1.dp))
 
-            // Agent Settings
-            Text(
-                "Agent Settings",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
+            // ── Agent Settings ───────────────────────────────────────────────
+            Text("Agent Settings", fontWeight = FontWeight.Bold, fontSize = 18.sp)
 
             OutlinedTextField(
                 value = maxSteps,
@@ -318,7 +273,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Warn if LOCAL mode is selected but model isn't ready
             if (selectedMode == InferenceMode.LOCAL && downloadState !is DownloadState.Downloaded) {
                 Text(
                     "Download the model first to use local inference.",
@@ -334,12 +288,7 @@ fun SettingsScreen(
                     } else {
                         selectedMode
                     }
-                    onSave(
-                        endpointUrl,
-                        qwenEndpointUrl,
-                        maxSteps.toIntOrNull()?.coerceIn(1, 50) ?: 15,
-                        modeToSave
-                    )
+                    onSave(endpointUrl, maxSteps.toIntOrNull()?.coerceIn(1, 50) ?: 15, modeToSave)
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -376,20 +325,11 @@ private fun LocalModelSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Model Status", fontWeight = FontWeight.Medium, fontSize = 14.sp)
-
                 when (downloadState) {
-                    is DownloadState.NotDownloaded -> {
-                        Text("Not downloaded", fontSize = 13.sp, color = Color(0xFFFFA726))
-                    }
-                    is DownloadState.Downloaded -> {
-                        Text("Ready", fontSize = 13.sp, color = Color(0xFF4CAF50))
-                    }
-                    is DownloadState.Downloading -> {
-                        Text("Downloading...", fontSize = 13.sp, color = Color(0xFF4FC3F7))
-                    }
-                    is DownloadState.Error -> {
-                        Text("Error", fontSize = 13.sp, color = Color(0xFFF44336))
-                    }
+                    is DownloadState.NotDownloaded -> Text("Not downloaded", fontSize = 13.sp, color = Color(0xFFFFA726))
+                    is DownloadState.Downloaded -> Text("Ready", fontSize = 13.sp, color = Color(0xFF4CAF50))
+                    is DownloadState.Downloading -> Text("Downloading...", fontSize = 13.sp, color = Color(0xFF4FC3F7))
+                    is DownloadState.Error -> Text("Error", fontSize = 13.sp, color = Color(0xFFF44336))
                 }
             }
 
@@ -400,74 +340,43 @@ private fun LocalModelSection(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
-                    Button(
-                        onClick = onDownload,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
+                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
                         Text("Download Model")
                     }
                 }
-
                 is DownloadState.Downloading -> {
                     @Suppress("DEPRECATION")
-                    LinearProgressIndicator(
-                        progress = downloadState.progressPercent / 100f,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    LinearProgressIndicator(progress = downloadState.progressPercent / 100f, modifier = Modifier.fillMaxWidth())
                     Text(
                         downloadState.description.ifEmpty { "${downloadState.progressPercent}%" },
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
-                    OutlinedButton(
-                        onClick = onCancel,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
+                    OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
                         Text("Cancel")
                     }
                 }
-
                 is DownloadState.Downloaded -> {
                     if (isLoadingModel) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Text("Loading model into memory...", fontSize = 13.sp)
                         }
                     }
-
                     OutlinedButton(
                         onClick = onDelete,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color(0xFFF44336)
-                        )
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF44336))
                     ) {
                         Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Delete Model")
                     }
                 }
-
                 is DownloadState.Error -> {
-                    Text(
-                        "Error: ${downloadState.message}",
-                        fontSize = 12.sp,
-                        color = Color(0xFFF44336)
-                    )
-                    Button(
-                        onClick = onDownload,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
+                    Text("Error: ${downloadState.message}", fontSize = 12.sp, color = Color(0xFFF44336))
+                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
                         Text("Retry Download")
                     }
                 }

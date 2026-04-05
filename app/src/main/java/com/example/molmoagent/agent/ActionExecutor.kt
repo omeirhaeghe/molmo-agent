@@ -40,13 +40,17 @@ class ActionExecutor @Inject constructor(
             }
 
             is AgentAction.Swipe -> {
-                val dm = context.resources.displayMetrics
                 service.gestureDispatcher.swipe(
-                    startX = action.startX * dm.widthPixels,
-                    startY = action.startY * dm.heightPixels,
-                    endX = action.endX * dm.widthPixels,
-                    endY = action.endY * dm.heightPixels
+                    startX = action.startX * service.gestureDispatcher.displayWidth,
+                    startY = action.startY * service.gestureDispatcher.displayHeight,
+                    endX = action.endX * service.gestureDispatcher.displayWidth,
+                    endY = action.endY * service.gestureDispatcher.displayHeight
                 )
+            }
+
+            is AgentAction.PressEnter -> {
+                if (service.pressEnter()) ActionResult.Success
+                else ActionResult.Failure("Could not find Enter key or focused input")
             }
 
             is AgentAction.PressBack -> service.globalActions.pressBack()

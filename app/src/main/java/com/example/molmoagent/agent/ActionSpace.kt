@@ -19,6 +19,9 @@ sealed class AgentAction {
         val endX: Float, val endY: Float
     ) : AgentAction()
 
+    /** Press the Enter / IME action key */
+    data object PressEnter : AgentAction()
+
     /** Press the back button */
     data object PressBack : AgentAction()
 

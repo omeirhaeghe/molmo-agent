@@ -7,4 +7,6 @@ package com.example.molmoagent.ui.overlay
 interface OverlayVisibilityController {
     fun hide()
     fun show()
+    /** Restore only the glow border — keeps the panel hidden during a running task. */
+    fun showGlowOnly()
 }

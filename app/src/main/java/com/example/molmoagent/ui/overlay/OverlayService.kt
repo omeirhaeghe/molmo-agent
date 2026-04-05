@@ -17,7 +17,6 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.molmoagent.MainActivity
 import com.example.molmoagent.agent.AgentLoop
-import com.example.molmoagent.agent.AgentState
 
 class OverlayService : Service(), OverlayVisibilityController {
 
@@ -25,6 +24,7 @@ class OverlayService : Service(), OverlayVisibilityController {
     private var overlayView: ComposeView? = null
     private var overlayParams: WindowManager.LayoutParams? = null
     private var glowView: ComposeView? = null
+    private var glowParams: WindowManager.LayoutParams? = null
     private var isFocusable = false
 
     private val lifecycleOwner = OverlayLifecycleOwner()
@@ -107,13 +107,10 @@ class OverlayService : Service(), OverlayVisibilityController {
                     onSubmitTask = { task ->
                         // Drop focus so keyboard hides before agent starts
                         setFocusable(false)
-                        val agentLoop = AgentLoopHolder.agentLoop
-                        if (agentLoop != null && agentLoop.state.value == AgentState.IDLE) {
-                            AgentLoopHolder.startTask(task)
-                        }
+                        AgentLoopHolder.startTask(task)
                     },
                     onStop = {
-                        AgentLoopHolder.agentLoop?.cancel()
+                        AgentLoopHolder.cancelTask()
                     },
                     onPause = {
                         AgentLoopHolder.agentLoop?.pause()
@@ -168,19 +165,53 @@ class OverlayService : Service(), OverlayVisibilityController {
             setContent {
                 val agentLoop = AgentLoopHolder.agentLoop
                 val state = agentLoop?.state?.collectAsState()
-                state?.value?.let { InferenceGlowOverlay(agentState = it) }
+                state?.value?.let {
+                    InferenceGlowOverlay(
+                        agentState = it,
+                        onTap = { AgentLoopHolder.cancelTask() }
+                    )
+                }
             }
         }
 
         glowLifecycleOwner.handleStart()
         windowManager.addView(glow, glowParams)
         glowView = glow
+        this.glowParams = glowParams
+    }
+
+    /**
+     * Toggle the glow overlay between touchable (intercepts all taps → cancel agent)
+     * and non-touchable (all touches pass through to the app behind).
+     */
+    fun setGlowTouchable(touchable: Boolean) {
+        val glow = glowView ?: return
+        val params = glowParams ?: return
+        params.flags = if (touchable) {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        } else {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        }
+        glow.post {
+            try { windowManager.updateViewLayout(glow, params) } catch (_: Exception) {}
+        }
+    }
+
+    fun setPanelVisible(visible: Boolean) {
+        overlayView?.post {
+            overlayView?.visibility = if (visible) View.VISIBLE else View.GONE
+        }
     }
 
     private fun hideGlowOverlay() {
         glowView?.let {
             windowManager.removeView(it)
             glowView = null
+            glowParams = null
         }
     }
 
@@ -199,6 +230,10 @@ class OverlayService : Service(), OverlayVisibilityController {
 
     override fun show() {
         overlayView?.post { overlayView?.visibility = View.VISIBLE }
+        glowView?.post { glowView?.visibility = View.VISIBLE }
+    }
+
+    override fun showGlowOnly() {
         glowView?.post { glowView?.visibility = View.VISIBLE }
     }
 

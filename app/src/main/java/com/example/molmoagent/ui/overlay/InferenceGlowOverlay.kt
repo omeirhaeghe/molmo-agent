@@ -2,6 +2,8 @@ package com.example.molmoagent.ui.overlay
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,7 +26,7 @@ import com.example.molmoagent.agent.AgentState
  * and the overall intensity pulses gently.
  */
 @Composable
-fun InferenceGlowOverlay(agentState: AgentState) {
+fun InferenceGlowOverlay(agentState: AgentState, onTap: () -> Unit = {}) {
     val isActive = agentState == AgentState.REASONING ||
             agentState == AgentState.OBSERVING ||
             agentState == AgentState.ACTING
@@ -62,7 +64,12 @@ fun InferenceGlowOverlay(agentState: AgentState) {
 
     if (!isActive) return
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(indication = null, interactionSource = interactionSource) { onTap() }
+    ) {
         val w = size.width
         val h = size.height
         val borderWidth = 6f

@@ -1,9 +1,11 @@
 package com.example.molmoagent.agent
 
+import android.util.Log
 import com.example.molmoagent.inference.InferenceClient
 import com.example.molmoagent.inference.ImageProcessor
 import com.example.molmoagent.screen.ScreenshotManager
 import com.example.molmoagent.ui.overlay.OverlayVisibilityController
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,11 +43,13 @@ class AgentLoop @Inject constructor(
         taskHistory.startNewTask(task)
 
         for (stepIndex in 1..maxSteps) {
+            Log.d("Clawlando", "[AgentLoop] loop top, stepIndex=$stepIndex, state=${_state.value}")
             // Check for pause
             if (_state.value == AgentState.PAUSED) {
                 _state.first { it != AgentState.PAUSED }
             }
             if (_state.value == AgentState.CANCELLED) {
+                Log.d("Clawlando", "[AgentLoop] step $stepIndex: CANCELLED, returning")
                 return
             }
 
@@ -59,7 +63,7 @@ class AgentLoop @Inject constructor(
 
             val screenshot = screenshotManager.captureScreen()
 
-            overlayController?.show()
+            overlayController?.showGlowOnly()
 
             if (screenshot == null) {
                 _errorMessage.value = "Failed to capture screenshot"
@@ -71,25 +75,34 @@ class AgentLoop @Inject constructor(
 
             // 2. REASON - send to model
             _state.value = AgentState.REASONING
+            Log.d("Clawlando", "[AgentLoop] step $stepIndex: calling inference")
             val response = try {
                 inferenceClient.predictNextAction(
                     screenshot = screenshot,
                     taskGoal = task,
                     previousSteps = taskHistory.getSteps()
                 )
+            } catch (e: CancellationException) {
+                Log.d("Clawlando", "[AgentLoop] step $stepIndex: inference cancelled")
+                throw e
             } catch (e: Exception) {
+                Log.e("Clawlando", "[AgentLoop] step $stepIndex: inference error: ${e.message}")
                 _errorMessage.value = "Inference error: ${e.message}"
                 _state.value = AgentState.ERROR
                 return
             }
+            Log.d("Clawlando", "[AgentLoop] step $stepIndex: THOUGHT=${response.thought}")
+            Log.d("Clawlando", "[AgentLoop] step $stepIndex: inference done, rawAction=${response.rawAction}")
 
             // 3. PARSE the action
             val action = actionParser.parse(response.rawAction)
             if (action == null) {
+                Log.e("Clawlando", "[AgentLoop] step $stepIndex: parse failed for: ${response.rawAction}")
                 _errorMessage.value = "Could not parse action: ${response.rawAction}"
                 _state.value = AgentState.ERROR
                 return
             }
+            Log.d("Clawlando", "[AgentLoop] step $stepIndex: parsed action=${action::class.simpleName}")
 
             val step = AgentStep(
                 stepNumber = stepIndex,
@@ -109,14 +122,18 @@ class AgentLoop @Inject constructor(
 
             // 5. EXECUTE the action
             _state.value = AgentState.ACTING
+            Log.d("Clawlando", "[AgentLoop] step $stepIndex: executing action")
             val result = actionExecutor.execute(action)
+            Log.d("Clawlando", "[AgentLoop] step $stepIndex: action result=$result")
             taskHistory.addStep(step.copy(result = result))
 
             if (result is ActionResult.Failure) {
+                Log.w("Clawlando", "[AgentLoop] step $stepIndex: action failed: ${result.reason}")
                 // Log the failure but continue - the model will see the unchanged screen
                 // and can try a different approach
             }
         }
+        Log.d("Clawlando", "[AgentLoop] reached maxSteps=$maxSteps")
 
         _state.value = AgentState.MAX_STEPS_REACHED
         _errorMessage.value = "Reached maximum of $maxSteps steps without completing the task"

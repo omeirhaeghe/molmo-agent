@@ -10,10 +10,11 @@ import javax.inject.Singleton
 class ImageProcessor @Inject constructor() {
 
     companion object {
-        // MolmoWeb was trained on 1280x720 browser screenshots.
-        // We resize mobile screenshots to fit within this canvas.
+        // Cap each dimension at 1280px so portrait screens aren't squashed.
+        // A 1080×2400 phone resizes to 576×1280 (vs the old 324×720), giving
+        // the model much more detail to work with.
         const val TARGET_WIDTH = 1280
-        const val TARGET_HEIGHT = 720
+        const val TARGET_HEIGHT = 1280
         const val JPEG_QUALITY = 85
     }
 

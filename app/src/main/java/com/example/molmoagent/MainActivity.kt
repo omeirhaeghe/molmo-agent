@@ -76,7 +76,6 @@ class MainActivity : ComponentActivity() {
 
                         composable("settings") {
                             val endpointUrl by viewModel.endpointUrl.collectAsState()
-                            val qwenEndpointUrl by viewModel.qwenEndpointUrl.collectAsState()
                             val maxSteps by viewModel.maxSteps.collectAsState()
                             val inferenceMode by viewModel.inferenceMode.collectAsState()
                             val downloadState by viewModel.downloadState.collectAsState()
@@ -85,20 +84,16 @@ class MainActivity : ComponentActivity() {
 
                             SettingsScreen(
                                 currentEndpointUrl = endpointUrl,
-                                currentQwenEndpointUrl = qwenEndpointUrl,
                                 currentMaxSteps = maxSteps,
                                 currentInferenceMode = inferenceMode,
                                 downloadState = downloadState,
                                 isLoadingModel = isLoadingModel,
                                 localModeError = localModeError,
-                                onSave = { url, qwenUrl, steps, mode ->
-                                    viewModel.saveSettings(url, qwenUrl, steps, mode)
+                                onSave = { url, steps, mode ->
+                                    viewModel.saveSettings(url, steps, mode)
                                 },
                                 onTestConnection = { url ->
                                     viewModel.testConnection(url)
-                                },
-                                onTestQwenConnection = { url ->
-                                    viewModel.testConnection(url, isQwen = true)
                                 },
                                 onInferenceModeChanged = { mode ->
                                     viewModel.setInferenceMode(mode)

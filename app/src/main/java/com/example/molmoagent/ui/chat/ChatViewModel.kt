@@ -40,21 +40,18 @@ class ChatViewModel @Inject constructor(
 
     companion object {
         val ENDPOINT_URL_KEY = stringPreferencesKey("endpoint_url")
-        val QWEN_ENDPOINT_URL_KEY = stringPreferencesKey("qwen_endpoint_url")
+        val QWEN_ENDPOINT_URL_KEY = stringPreferencesKey("qwen_endpoint_url") // legacy, read for migration
         val MAX_STEPS_KEY = intPreferencesKey("max_steps")
         val INFERENCE_MODE_KEY = stringPreferencesKey("inference_mode")
+        const val DEFAULT_ENDPOINT_URL = "https://dmuxtqvqoal6yvu1.us-east-1.aws.endpoints.huggingface.cloud"
     }
 
     val tasks: StateFlow<List<TaskEntity>> = taskRepository.getAllTasks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val endpointUrl: StateFlow<String> = context.dataStore.data
-        .map { it[ENDPOINT_URL_KEY] ?: "" }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-    val qwenEndpointUrl: StateFlow<String> = context.dataStore.data
-        .map { it[QWEN_ENDPOINT_URL_KEY] ?: "" }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+        .map { it[ENDPOINT_URL_KEY] ?: DEFAULT_ENDPOINT_URL }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DEFAULT_ENDPOINT_URL)
 
     val maxSteps: StateFlow<Int> = context.dataStore.data
         .map { it[MAX_STEPS_KEY] ?: 15 }
@@ -74,17 +71,15 @@ class ChatViewModel @Inject constructor(
         // Apply saved settings — use first() to avoid re-triggering on every dataStore write
         viewModelScope.launch {
             val prefs = context.dataStore.data.first()
-            val url = prefs[ENDPOINT_URL_KEY] ?: ""
-            if (url.isNotEmpty()) {
-                inferenceClientManager.endpointUrl = url
+            // Migration: if legacy QWEN mode was saved, use its endpoint as the cloud endpoint
+            val savedMode = prefs[INFERENCE_MODE_KEY] ?: "QWEN"
+            val url = when {
+                prefs[ENDPOINT_URL_KEY]?.isNotEmpty() == true -> prefs[ENDPOINT_URL_KEY]!!
+                savedMode == "QWEN" -> prefs[QWEN_ENDPOINT_URL_KEY] ?: DEFAULT_ENDPOINT_URL
+                else -> DEFAULT_ENDPOINT_URL
             }
-            val qwenUrl = prefs[QWEN_ENDPOINT_URL_KEY] ?: ""
-            if (qwenUrl.isNotEmpty()) {
-                inferenceClientManager.qwenEndpointUrl = qwenUrl
-            }
+            inferenceClientManager.endpointUrl = url
 
-            // Restore saved inference mode — must actually load the model
-            val savedMode = prefs[INFERENCE_MODE_KEY] ?: "CLOUD"
             when (savedMode) {
                 "LOCAL" -> if (downloadManager.isDownloaded) {
                     _isLoadingModel.value = true
@@ -95,21 +90,19 @@ class ChatViewModel @Inject constructor(
                             ?: "Failed to load model on startup"
                     }
                 }
-                "QWEN" -> inferenceClientManager.switchToQwen(unloadLocal = false)
+                else -> inferenceClientManager.switchToCloud(unloadLocal = false)
             }
         }
     }
 
-    fun saveSettings(endpointUrl: String, qwenEndpointUrl: String, maxSteps: Int, mode: InferenceClientManager.InferenceMode) {
+    fun saveSettings(endpointUrl: String, maxSteps: Int, mode: InferenceClientManager.InferenceMode) {
         viewModelScope.launch {
             context.dataStore.edit { prefs ->
                 prefs[ENDPOINT_URL_KEY] = endpointUrl
-                prefs[QWEN_ENDPOINT_URL_KEY] = qwenEndpointUrl
                 prefs[MAX_STEPS_KEY] = maxSteps
                 prefs[INFERENCE_MODE_KEY] = mode.name
             }
             inferenceClientManager.endpointUrl = endpointUrl
-            inferenceClientManager.qwenEndpointUrl = qwenEndpointUrl
         }
     }
 
@@ -139,9 +132,6 @@ class ChatViewModel @Inject constructor(
                         inferenceClientManager.switchToCloud(unloadLocal = false)
                         return@launch
                     }
-                }
-                InferenceClientManager.InferenceMode.QWEN -> {
-                    inferenceClientManager.switchToQwen()
                 }
                 InferenceClientManager.InferenceMode.CLOUD -> {
                     inferenceClientManager.switchToCloud()
@@ -173,31 +163,15 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun testConnection(url: String, isQwen: Boolean = false): Boolean {
-        if (isQwen) {
-            val original = inferenceClientManager.qwenEndpointUrl
-            inferenceClientManager.qwenEndpointUrl = url
-            // Temporarily switch to qwen to test its client
-            val originalMode = inferenceClientManager.mode.value
-            inferenceClientManager.setMode(InferenceClientManager.InferenceMode.QWEN)
-            val result = try {
-                inferenceClientManager.testConnection()
-            } catch (_: Exception) {
-                false
-            }
-            inferenceClientManager.setMode(originalMode)
-            inferenceClientManager.qwenEndpointUrl = original
-            return result
-        } else {
-            val original = inferenceClientManager.endpointUrl
-            inferenceClientManager.endpointUrl = url
-            val result = try {
-                inferenceClientManager.testConnection()
-            } catch (_: Exception) {
-                false
-            }
-            inferenceClientManager.endpointUrl = original
-            return result
+    suspend fun testConnection(url: String): Boolean {
+        val original = inferenceClientManager.endpointUrl
+        inferenceClientManager.endpointUrl = url
+        val result = try {
+            inferenceClientManager.testConnection()
+        } catch (_: Exception) {
+            false
         }
+        inferenceClientManager.endpointUrl = original
+        return result
     }
 }
